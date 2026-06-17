@@ -9,63 +9,49 @@ from services.imagekit_service import upload_file
 
 logger = logging.getLogger(__name__)
 
-STYLES = {
-    "bold_dramatic": (
-        "Create a cinematic, high-contrast thumbnail with intense lighting, strong emotions, "
-        "dynamic composition, and a sense of tension or urgency. Use deep shadows, punchy highlights, "
-        "and bold visual elements that feel larger than life."
-    ),
-    "clean_minimal": (
-        "Create a restrained, modern thumbnail with lots of negative space, a simple composition, "
-        "a limited color palette, and a polished editorial look. Prioritize clarity, balance, and "
-        "a premium minimal aesthetic."
-    ),
-    "vibrant_energetic": (
-        "Create a bright, colorful thumbnail with saturated hues, lively shapes, motion, and strong visual energy. "
-        "Use eye-catching contrast, playful accents, and an upbeat composition that feels fast, exciting, "
-        "and highly clickable."
-    ),
-}
-
 STYLE_ORDER = ["bold_dramatic", "clean_minimal", "vibrant_energetic"]
 
 
 async def generate_single_thumbnail(thumbnail_id: str, prompt: str, headshot_url: str):
-    # DB mark -> generating
+    # Mark as generating
     with Session(engine) as session:
         thumb = session.get(Thumbnail, thumbnail_id)
         thumb.status = "generating"
-        style_name = (
-            thumb.style.name if getattr(thumb, "style", None) else STYLE_ORDER[0]
-        )
+        style_name = thumb.style_name
+        job_id = thumb.job_id          # ← grab job_id here, avoids extra DB call later
         session.add(thumb)
         session.commit()
-    style_prompt = STYLES[style_name]
-    # Ai call
+
+    logger.info(f"[job={job_id}] Generating thumbnail {thumbnail_id} (style={style_name})")
+
     try:
-        image_byte = await generate_thumbnail(prompt, style_prompt, headshot_url)
-        with Session(engine) as session:
-            thumb = session.get(Thumbnail, thumbnail_id)
-            job_id = thumb.job_id
+        # Generate image via Ideogram
+        image_bytes = await generate_thumbnail(
+            prompt=prompt,
+            style_name=style_name,
+            headshot_url=headshot_url,
+        )
 
-        # upload image
-
+        # Upload to ImageKit
         url = upload_file(
-            file_bytes=image_byte,
+            file_bytes=image_bytes,         
             file_name=f"{thumbnail_id}.png",
             folder=f"thumbnails/{job_id}/",
             content_type="image/png",
         )
-        # DB call save the url + mark -> done
+
+        # Save URL and mark as uploaded
         with Session(engine) as session:
             thumb = session.get(Thumbnail, thumbnail_id)
             thumb.image_kit_url = url
             thumb.status = "uploaded"
             session.add(thumb)
             session.commit()
-        logger.info(f"Thumbnail {thumbnail_id} generated and uploaded successfully.")
+
+        logger.info(f"[job={job_id}] Thumbnail {thumbnail_id} uploaded successfully.")
+
     except Exception as e:
-        logger.error(f"Error generating thumbnail {thumbnail_id}: {str(e)}")
+        logger.error(f"[job={job_id}] Thumbnail {thumbnail_id} failed: {str(e)}")
         with Session(engine) as session:
             thumb = session.get(Thumbnail, thumbnail_id)
             thumb.status = "error"
@@ -75,38 +61,54 @@ async def generate_single_thumbnail(thumbnail_id: str, prompt: str, headshot_url
 
 
 async def process_job(job_id: str):
-    # make job as processing
-    # find all thumbnails for the job
-    # start one workeer per thumbnail
-    # wait for all workers to finish
-    # mark job as complete/failed
+    # Mark job as processing
     with Session(engine) as session:
         job = session.get(Job, job_id)
         job.status = "processing"
         prompt = job.prompt
         headshot_url = job.headshot_url
-
         session.add(job)
         session.commit()
 
+    logger.info(f"[job={job_id}] Processing started.")
+
+    # Load all thumbnail IDs for this job
     with Session(engine) as session:
         thumbnails = session.exec(
             select(Thumbnail).where(Thumbnail.job_id == job_id)
         ).all()
         thumbnail_ids = [t.id for t in thumbnails]
 
+    # Run all three style variants concurrently
     tasks = [
-        generate_single_thumbnail(tid, prompt, headshot_url) for tid in thumbnail_ids
+        generate_single_thumbnail(tid, prompt, headshot_url)
+        for tid in thumbnail_ids
     ]
-
     await asyncio.gather(*tasks, return_exceptions=True)
 
+    # Determine final job status
     with Session(engine) as session:
         thumbnails = session.exec(
             select(Thumbnail).where(Thumbnail.job_id == job_id)
         ).all()
-        all_failed = all(t.status == "error" for t in thumbnails)
+
+        total = len(thumbnails)
+        failed = sum(1 for t in thumbnails if t.status == "error")
+        uploaded = sum(1 for t in thumbnails if t.status == "uploaded")
+
+        if failed == total:
+            final_status = "failed"
+        elif failed > 0:
+            final_status = "partial_failure"   # some succeeded, some didn't
+        else:
+            final_status = "completed"
+
         job = session.get(Job, job_id)
-        job.status = "failed" if all_failed else "completed"
+        job.status = final_status
         session.add(job)
         session.commit()
+
+    logger.info(
+        f"[job={job_id}] Done. status={final_status} "
+        f"uploaded={uploaded}/{total} failed={failed}/{total}"
+    )

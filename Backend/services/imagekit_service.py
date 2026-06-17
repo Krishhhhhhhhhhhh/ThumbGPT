@@ -1,29 +1,36 @@
-from unittest import result
-
 from imagekitio import ImageKit
 
 from config import IMAGEKIT_PRIVATE_KEY, IMAGEKIT_URL_ENDPOINT
 
-imagekit=ImageKit(private_key=IMAGEKIT_PRIVATE_KEY)
+imagekit = ImageKit(
+    private_key=IMAGEKIT_PRIVATE_KEY,
+)
 
-def upload_file(file_bytes:bytes,file_name:str,folder:str,content_type:str="image/jpeg")->str: 
+imagekit.url_endpoint = IMAGEKIT_URL_ENDPOINT
+
+
+def upload_file(
+    file_bytes: bytes,
+    file_name: str,
+    folder: str,
+    content_type: str = "image/jpeg",
+) -> str:
     """Uploads a file to ImageKit and returns the URL of the uploaded file."""
-    result=imagekit.files.upload_file(
-        file=(file_bytes,file_name,content_type),
+
+    result = imagekit.files.upload(
+        file=file_bytes,
         file_name=file_name,
         folder=folder,
-        isprivate_file=False,
-        use_unique_file_name=True  
-        
+        is_private_file=False,
+        use_unique_file_name=True,
     )
 
     return result.url
 
-#  The below function uploads a file to ImageKit and returns the URL of the uploaded file. It takes in the file bytes, file name, folder name, and content type as parameters. The function uses the ImageKit SDK to upload the file and returns the URL of the uploaded file.
-def get_variants(base_url:str) -> dict:
-    """Returns a dictionary of variants for a given base URL."""
+
+def get_variants(base_url: str) -> dict:
     return {
-        "youtube":f"{base_url}?tr=w-1280,h-720,c-maintain_ratio,fo-auto",
-        "shorts":f"{base_url}?tr=w-1080,h-1920,c-maintain_ratio,fo-auto",
-        "square":f"{base_url}?tr=w-1080,h-1080,c-maintain_ratio,fo-auto",
+        "youtube": f"{base_url}?tr=w-1280,h-720,c-maintain_ratio,fo-auto",
+        "shorts": f"{base_url}?tr=w-1080,h-1920,c-maintain_ratio,fo-auto",
+        "square": f"{base_url}?tr=w-1080,h-1080,c-maintain_ratio,fo-auto",
     }

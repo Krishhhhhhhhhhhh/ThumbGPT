@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 from database import get_session
 from models import Job, Thumbnail
 from services.generator import process_job, STYLE_ORDER
-from services.imagekit import upload_file, get_variants
+from services.imagekit_service import upload_file, get_variants
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +31,7 @@ class CreateJobResponse(BaseModel):
 
 
 class ThumbnailResponse(BaseModel):
-    id: int
+    id: str
     style_name: str
     status: str
     image_kit_url: str | None = None
@@ -40,7 +40,7 @@ class ThumbnailResponse(BaseModel):
 
 
 class JobResponse(BaseModel):
-    id: int
+    id: str
     prompt: str
     num_thumbnails: int
     headshot_url: str
@@ -129,7 +129,7 @@ async def stream_job(job_id: str):
         while True:
             with Session(engine) as session:
                 job = session.get(Job, job_id)
-                if not job: 
+                if not job:
                     yield f"event: error\ndata: {json.dumps({'error': 'Job not found'})}"
                     return
                 thumbnails = session.exec(
@@ -149,10 +149,10 @@ async def stream_job(job_id: str):
                                 "variants": variants,
                             }
                         )
-                        yield f"event: thubnail_ready\n data: {data}"
+                        yield f"event: thumbnail_ready\ndata: {data}\n\n"
                         sent_thumbnails.add(t.id)
 
-                    elif t.status == "failed":
+                    elif t.status == "error":
                         data = json.dumps(
                             {
                                 "thumbnail_id": t.id,
@@ -160,7 +160,7 @@ async def stream_job(job_id: str):
                                 "error": t.error_message,
                             }
                         )
-                        yield f"event: thubnail_failed\n data: {data}"
+                        yield f"event: thumbnail_failed\ndata: {data}\n\n"
                         sent_thumbnails.add(t.id)
 
                 all_done = all(t.status in ("uploaded", "failed") for t in thumbnails)
@@ -180,4 +180,3 @@ async def stream_job(job_id: str):
             "X-Accel-Buffering": "no",
         },
     )
- 

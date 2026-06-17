@@ -1,4 +1,4 @@
-const API_BASE = '/api';
+const API_BASE = 'http://localhost:8000/api';
 
 export async function uploadHeadshot(file) {
     const form =new FormData();
@@ -13,14 +13,14 @@ export async function uploadHeadshot(file) {
     }
     return res.json();
 }
- export async function createjob({prompt,numThumbnails,headshotUrl}) {
-    const res=await fetch(`${API_BASE}/job`, {
+export async function createJob({prompt,numThumbnails,headshotUrl}) {
+    const res=await fetch(`${API_BASE}/jobs`, {
         method: 'POST',
         headers: {
             "Content-Type": "application/json",
         },
         body: JSON.stringify({prompt,
-            num_Thumbnails:numThumbnails,headshot_url:headshotUrl}),
+            num_thumbnails:numThumbnails,headshot_url:headshotUrl}),
     });
     if(!res.ok){
         throw new Error('Failed to create job');
@@ -28,14 +28,14 @@ export async function uploadHeadshot(file) {
     return res.json();
 }
 
-export async function subscribeToJob(jobId,{onThumbnailReady,onThumbnailFailed,onJobComplete,OnError}){
-    const es = new Events(`${API_BASE}/jobs/${jobId}/stream`);
+export async function subscribeToJob(jobId,{onThumbnailReady,onThumbnailFailed,onJobComplete,onError}){
+    const es = new EventSource(`${API_BASE}/jobs/${jobId}/stream`);
 
-    es.addEventListener('thubnail_ready', (event) => {
+    es.addEventListener('thumbnail_ready', (event) => {
         onThumbnailReady(JSON.parse(event.data));
     });
 
-    es.addEventListener('thubnail_failed', (event) => {
+    es.addEventListener('thumbnail_failed', (event) => {
         onThumbnailFailed(JSON.parse(event.data));
 
     });
@@ -45,7 +45,7 @@ export async function subscribeToJob(jobId,{onThumbnailReady,onThumbnailFailed,o
     });
 
     es.addEventListener('error', (event) => {
-        OnError(JSON.parse(event.data));
+        onError(JSON.parse(event.data));
          es.close();
     });
 
